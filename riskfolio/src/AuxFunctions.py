@@ -849,7 +849,12 @@ def std_silhouette_score(dist, clustering, max_k=10):
             break
         else:
             level = cluster_lvls[level_k[cluster_k.index(k)]]  # get k clusters
-            b = silhouette_samples(dist, level)
+            # dist already contains pairwise asset distances, not feature vectors.
+            distances = dist.to_numpy(copy=True)
+            # Correlation-derived distances may have tiny diagonal roundoff.
+            if np.allclose(np.diag(distances), 0, atol=1e-7, rtol=0):
+                np.fill_diagonal(distances, 0)
+            b = silhouette_samples(distances, level, metric="precomputed")
             scores_list.append(b.mean() / b.std())
 
     scores_list = pd.Series(scores_list)
