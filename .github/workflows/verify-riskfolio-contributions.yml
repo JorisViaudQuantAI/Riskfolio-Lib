@@ -1,0 +1,74 @@
+name: Verify Riskfolio contribution candidates
+on:
+  push:
+    branches: [chore/verify-riskfolio-contributions]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.repository == 'JorisViaudQuantAI/Riskfolio-Lib'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            riskfolio
+            tests
+            setup.py
+            README.md
+            pyproject.toml
+            requirements.txt
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install runtime and testing dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! python -m pip install --only-binary riskfolio-lib 'riskfolio-lib==7.4.1' pytest; then
+            python -m pip install --only-binary riskfolio-lib 'riskfolio-lib==7.4.0' pytest
+          fi
+          cd "$RUNNER_TEMP"
+          python -c 'from importlib.metadata import version; print("Installed wheel:", version("riskfolio-lib"))'
+          python -c 'import numpy, pandas, scipy, sklearn; print(numpy.__version__, pandas.__version__, scipy.__version__, sklearn.__version__)'
+          python -c 'import pathlib, importlib.util; print(pathlib.Path(importlib.util.find_spec("riskfolio").origin).parent)' > "$RUNNER_TEMP/riskfolio-wheel-path"
+      - name: Verify each branch against the original source
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=344b899eb72e5636330647f08e3c5d88a8f71a84
+          git fetch --depth=1 origin "$base"
+          wheel=$(cat "$RUNNER_TEMP/riskfolio-wheel-path")
+          for branch in fix/brinson-asset-alignment candidate/brinson-unheld-sectors fix/brinson-unmatched-dates candidate/precomputed-silhouette; do
+            case "$branch" in
+              fix/brinson-asset-alignment) module=riskfolio/src/RiskFunctions.py; test=tests/test_brinson_asset_alignment.py; expected=4;;
+              candidate/brinson-unheld-sectors) module=riskfolio/src/RiskFunctions.py; test=tests/test_brinson_unheld_sectors.py; expected=3;;
+              fix/brinson-unmatched-dates) module=riskfolio/src/RiskFunctions.py; test=tests/test_brinson_unmatched_dates.py; expected=2;;
+              candidate/precomputed-silhouette) module=riskfolio/src/AuxFunctions.py; test=tests/test_precomputed_silhouette.py; expected=2;;
+            esac
+            echo "::group::$branch"
+            git fetch --depth=1 origin "refs/heads/$branch"
+            git checkout --detach FETCH_HEAD
+            git rev-parse HEAD
+            # Use current repository Python sources, plus the wheel's generated version and binary extension.
+            cp "$wheel/version.py" riskfolio/version.py
+            find "$wheel/external" -name '*.so' -exec cp {} riskfolio/external/ \;
+            python -c 'import riskfolio, riskfolio.src.RiskFunctions; print(riskfolio.__file__); print(riskfolio.src.RiskFunctions.__file__)'
+            cp "$module" "$RUNNER_TEMP/riskfolio-corrected.py"
+            git show "$base:$module" > "$module"
+            set +e
+            python -m pytest -q "$test" > "$RUNNER_TEMP/riskfolio-before.txt" 2>&1
+            status=$?
+            set -e
+            cat "$RUNNER_TEMP/riskfolio-before.txt"
+            cp "$RUNNER_TEMP/riskfolio-corrected.py" "$module"
+            test "$status" -eq 1
+            grep -Eq "^=*[[:space:]]*$expected failed" "$RUNNER_TEMP/riskfolio-before.txt"
+            python -m pytest -q "$test"
+            git diff --check "$base" HEAD
+            echo "::endgroup::"
+          done
