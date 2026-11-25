@@ -3335,6 +3335,11 @@ def BrinsonAttribution(
     Creates a DataFrame with the Brinson Performance Attribution per class and
     aggregate based on :cite:`f-Brinson1985`.
 
+    When a class is not held on one side, use the held side's class return
+    as its reference return, so the active effect is attributed to allocation.
+    If neither side holds the class, all effects are zero. A net-zero class
+    with offsetting long and short positions has no defined class return.
+
     Parameters
     ----------
     prices : DataFrame of shape (n_samples, n_assets)
@@ -3479,8 +3484,19 @@ def BrinsonAttribution(
         wb_i = (sets_i.T @ wb_).item()
         wp_i = (sets_i.T @ wp_).item()
 
-        Rb_i = (np.multiply(p3, sets_i).T @ wb_).item() / wb_i
-        Rp_i = (np.multiply(p3, sets_i).T @ wp_).item() / wp_i
+        mask = sets_i.ravel().astype(bool)
+        if (wb_i == 0 and np.any(wb_[mask] != 0)) or (
+            wp_i == 0 and np.any(wp_[mask] != 0)
+        ):
+            raise ValueError("Brinson class return is undefined for net-zero positions")
+
+        Rb_i = (np.multiply(p3, sets_i).T @ wb_).item() / wb_i if wb_i else None
+        Rp_i = (np.multiply(p3, sets_i).T @ wp_).item() / wp_i if wp_i else None
+        # No holdings: use the other side's class return, or zero if both are absent.
+        if Rb_i is None:
+            Rb_i = Rp_i if Rp_i is not None else 0.0
+        if Rp_i is None:
+            Rp_i = Rb_i
 
         AAE_i = (wp_i - wb_i) * (Rb_i - Rb)
         SSE_i = wb_i * (Rp_i - Rb_i)
