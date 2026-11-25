@@ -14,8 +14,9 @@ def test_cluster_count_uses_pairwise_asset_distances():
     returns = factors @ rng.normal(0, 1, (4, 16)) * 0.7
     returns += rng.normal(0, 0.01, (252, 16))
     corr = pd.DataFrame(returns).corr()
-    dist = np.sqrt(np.clip((1 - corr) / 2, 0, 1))
-    np.fill_diagonal(dist.values, 0)
+    distances = np.sqrt(np.clip((1 - corr.to_numpy()) / 2, 0, 1))
+    np.fill_diagonal(distances, 0)
+    dist = pd.DataFrame(distances)
     clustering = linkage(squareform(dist, checks=False), method="ward")
 
     # Independent calculation of the intended standardized silhouette scores.
@@ -36,8 +37,10 @@ def test_roundoff_on_distance_diagonal_is_not_a_feature():
     factors = rng.normal(0, 0.01, (252, 4))
     returns = factors @ rng.normal(0, 1, (4, 16)) * 0.7
     returns += rng.normal(0, 0.01, (252, 16))
-    dist = np.sqrt(np.clip((1 - pd.DataFrame(returns).corr()) / 2, 0, 1))
-    np.fill_diagonal(dist.values, 1e-8)
+    corr = pd.DataFrame(returns).corr().to_numpy()
+    distances = np.sqrt(np.clip((1 - corr) / 2, 0, 1))
+    np.fill_diagonal(distances, 1e-8)
+    dist = pd.DataFrame(distances)
     clustering = linkage(squareform(dist, checks=False), method="ward")
     original = dist.copy()
     k, _ = std_silhouette_score(dist, clustering)

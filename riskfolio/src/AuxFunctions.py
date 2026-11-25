@@ -840,6 +840,11 @@ def std_silhouette_score(dist, clustering, max_k=10):
     cluster_k = cluster_lvls.nunique(axis=0).tolist()
     scores_list = []
     n = dist.shape[0]
+    # dist already contains pairwise asset distances, not feature vectors.
+    distances = dist.to_numpy(dtype=float, copy=True)
+    # Correlation-derived distances may have tiny diagonal roundoff.
+    if np.allclose(np.diag(distances), 0, atol=1e-7, rtol=0):
+        np.fill_diagonal(distances, 0)
 
     # get within-cluster dissimilarity for each k
     for k in cluster_k:
@@ -849,11 +854,6 @@ def std_silhouette_score(dist, clustering, max_k=10):
             break
         else:
             level = cluster_lvls[level_k[cluster_k.index(k)]]  # get k clusters
-            # dist already contains pairwise asset distances, not feature vectors.
-            distances = dist.to_numpy(copy=True)
-            # Correlation-derived distances may have tiny diagonal roundoff.
-            if np.allclose(np.diag(distances), 0, atol=1e-7, rtol=0):
-                np.fill_diagonal(distances, 0)
             b = silhouette_samples(distances, level, metric="precomputed")
             scores_list.append(b.mean() / b.std())
 
